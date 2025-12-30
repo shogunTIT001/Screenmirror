@@ -27,6 +27,7 @@
     const ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws');
     const createBtn = document.getElementById('createBtn');
     const startBtn = document.getElementById('startBtn');
+    const startBufferedBtn = document.getElementById('startBufferedBtn');
     const codeEl = document.getElementById('code');
     const viewerList = document.getElementById('viewerList');
 
@@ -65,6 +66,7 @@
         roomCode = msg.code;
         codeEl.textContent = roomCode;
         startBtn.disabled = false;
+        startBufferedBtn.disabled = false;
         // generate QR codes for viewer URLs
         generateQRCodes(roomCode);
       }
