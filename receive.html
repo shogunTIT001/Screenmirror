@@ -34,9 +34,11 @@
                         <button id="copy-diag" class="px-2 py-1 text-xs bg-gray-800 rounded">Copy logs</button>
                         <button id="show-ice" class="px-2 py-1 text-xs bg-gray-800 rounded">Show ICE</button>
                         <button id="show-net" class="px-2 py-1 text-xs bg-gray-800 rounded">Net</button>
+                        <button id="discover-hosts" class="px-2 py-1 text-xs bg-gray-800 rounded">ค้นหา Hosts</button>
                     </div>
                 </div>
-                <pre id="diag-log" class="whitespace-pre-wrap max-h-40 overflow-auto text-[12px] text-gray-300"></pre>
+                <pre id="diag-log" class="whitespace-pre-wrap max-h-28 overflow-auto text-[12px] text-gray-300"></pre>
+                <div id="discover-list" class="mt-2 text-[12px] text-gray-300"></div>
             </div>
         </div>
     </div>
@@ -74,6 +76,8 @@
             { urls: 'stun:stun2.l.google.com:19302' },
             // { urls: 'turn:your.turn.server:3478', username: 'user', credential: 'pass' }
         ];
+        // Discovery server (change if hosted elsewhere)
+        const DISCOVERY_URL = 'http://localhost:3000';
 
         peer = new Peer(null, {
             debug: 1,
@@ -149,6 +153,36 @@
                 }
             } catch (e) { logDiag('Error reading network info: ' + e, 'warn'); }
         });
+
+        // Discover hosts via discovery server
+        async function discoverHosts() {
+            try {
+                const res = await fetch(DISCOVERY_URL + '/hosts');
+                const arr = await res.json();
+                logDiag('Found ' + arr.length + ' host(s)');
+                const container = document.getElementById('discover-list');
+                container.innerHTML = '';
+                if (arr.length === 0) { container.innerText = 'ไม่พบ host ใกล้เคียง'; return; }
+                arr.forEach(h => {
+                    const el = document.createElement('div');
+                    el.className = 'py-1 border-b border-gray-800';
+                    const time = new Date(h.ts).toLocaleTimeString();
+                    el.innerHTML = `<div class="flex justify-between items-center"><div><strong class="text-white">${h.name}</strong> <span class="text-gray-400">(${h.id})</span><div class="text-[11px] text-gray-400">ips: ${h.ips.join(', ') || '-'} • last: ${time}</div></div><div><button data-id="${h.id}" class="px-2 py-1 text-xs bg-cyan-600 rounded connect-host">เชื่อมต่อ</button></div></div>`;
+                    container.appendChild(el);
+                });
+                // wire connect buttons
+                container.querySelectorAll('.connect-host').forEach(b => b.addEventListener('click', (e) => {
+                    const id = e.currentTarget.dataset.id;
+                    remoteIdInput.value = id;
+                    showToast('เลือก host: ' + id);
+                }));
+            } catch (e) {
+                logDiag('Discover failed: ' + e, 'warn');
+                showToast('ค้นหา host ล้มเหลว','error');
+            }
+        }
+
+        document.getElementById('discover-hosts').addEventListener('click', discoverHosts);
 
         btnConnect.addEventListener('click', () => {
             const hostId = remoteIdInput.value.trim();
