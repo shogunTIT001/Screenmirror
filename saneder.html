@@ -29,6 +29,7 @@
 
         <p id="status-msg" class="text-xs text-gray-400">ยังไม่มีการเชื่อมต่อ</p>
         <p id="viewer-count" class="text-xs text-green-400 mt-2 hidden">ผู้รับชม: 0 คน</p>
+        <div id="toast" class="mt-3 hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded shadow-lg text-sm z-50"></div>
     </div>
 
     <!-- Preview Video -->
@@ -52,17 +53,22 @@
         let peer = null;
         let localStream = null;
         let viewers = []; // เก็บ ID คนที่เชื่อมต่อเข้ามา
+        // รายการ ICE servers - เพิ่ม TURN server ที่นี่เมื่อจำเป็น
+        const ICE_SERVERS = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            // ตัวอย่าง TURN (แนะนำให้ใช้ TURN สำหรับเครือข่ายเข้มงวด):
+            // { urls: 'turn:your.turn.server:3478', username: 'user', credential: 'pass' }
+        ];
+        let viewersMap = {}; // map viewerId -> DataConnection (เพื่อจัดการเมื่อปิดการเชื่อมต่อ)
 
         // 1. เริ่มต้น PeerJS
         function initPeer() {
             peer = new Peer(null, {
                 debug: 1,
                 config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { urls: 'stun:stun2.l.google.com:19302' }
-                    ]
+                    iceServers: ICE_SERVERS
                 }
             });
 
@@ -70,6 +76,7 @@
                 myIdEl.innerText = id;
                 myIdEl.classList.remove('text-gray-500');
                 myIdEl.classList.add('text-yellow-400');
+                showToast('Ready. ส่ง ID ให้ผู้ชมเพื่อเชื่อมต่อ');
             });
 
             // รอ Viewer เชื่อมต่อเข้ามา (Handshake)
@@ -77,6 +84,9 @@
                 conn.on('open', () => {
                     console.log("New viewer connected:", conn.peer);
                     
+                    // เก็บ conn เพื่อจัดการปิดการเชื่อมต่อได้
+                    viewersMap[conn.peer] = conn;
+
                     // เพิ่มรายชื่อ
                     if (!viewers.includes(conn.peer)) {
                         viewers.push(conn.peer);
@@ -93,6 +103,32 @@
                         statusMsg.innerText = `มีคนมารอชม ${viewers.length} คน (กดแชร์เพื่อเริ่ม)`;
                     }
                 });
+
+                conn.on('close', () => {
+                    console.log('Viewer connection closed', conn.peer);
+                    delete viewersMap[conn.peer];
+                    viewers = viewers.filter(id => id !== conn.peer);
+                    updateViewerCount();
+                    showToast(`ผู้รับชม ${conn.peer} ออกจากการเชื่อมต่อ`,'warn');
+                });
+
+                conn.on('error', (err) => {
+                    console.error('Connection error with', conn.peer, err);
+                    showToast(`Connection error: ${err}`,'error');
+                });
+            });
+
+            peer.on('error', (err) => {
+                console.error('Peer error:', err);
+                showToast('Peer error: ' + err, 'error');
+            });
+
+            peer.on('disconnected', () => {
+                showToast('Peer disconnected. พยายามเชื่อมต่อใหม่...','warn');
+            });
+
+            peer.on('close', () => {
+                showToast('Peer closed','warn');
             });
         }
 
@@ -107,11 +143,29 @@
                 viewers = viewers.filter(id => id !== viewerId);
                 updateViewerCount();
             });
+
+            call.on('error', (err) => {
+                console.error('Call error to', viewerId, err);
+                showToast('Error sending stream to ' + viewerId,'error');
+            });
         }
 
         function updateViewerCount() {
             viewerCountEl.innerText = `ผู้รับชม: ${viewers.length} คน`;
             viewerCountEl.classList.remove('hidden');
+        }
+
+        // Simple toast utility (non-blocking notifications)
+        function showToast(message, type = 'info', timeout = 3500) {
+            const toast = document.getElementById('toast');
+            if (!toast) return;
+            toast.className = 'mt-3 fixed bottom-6 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded shadow-lg text-sm z-50';
+            const bg = type === 'error' ? 'bg-red-600' : type === 'warn' ? 'bg-yellow-600' : 'bg-gray-800';
+            toast.classList.add(bg);
+            toast.innerText = message;
+            toast.classList.remove('hidden');
+            clearTimeout(toast._hideTimeout);
+            toast._hideTimeout = setTimeout(() => toast.classList.add('hidden'), timeout);
         }
 
         // 2. ปุ่มเริ่มแชร์หน้าจอ
@@ -139,13 +193,13 @@
 
                 // ดักจับเมื่อกด Stop Sharing ที่ Browser
                 localStream.getVideoTracks()[0].onended = () => {
-                    alert("การแชร์หน้าจอสิ้นสุดลง");
-                    location.reload(); 
+                    showToast('การแชร์หน้าจอสิ้นสุดลง','info', 2000);
+                    setTimeout(() => location.reload(), 1600);
                 };
 
             } catch (err) {
                 console.error("Error:", err);
-                alert("ไม่สามารถจับภาพหน้าจอได้: " + err.message);
+                showToast('ไม่สามารถจับภาพหน้าจอได้: ' + err.message,'error', 5000);
             }
         });
 
@@ -153,8 +207,7 @@
         myIdEl.addEventListener('click', () => {
             const text = myIdEl.innerText;
             if (text !== 'Waiting...') {
-                navigator.clipboard.writeText(text);
-                alert("คัดลอก ID แล้ว!");
+                navigator.clipboard.writeText(text).then(() => showToast('คัดลอก ID แล้ว!','info'));
             }
         });
 
