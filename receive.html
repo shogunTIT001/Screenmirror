@@ -26,6 +26,18 @@
                 🔗 เชื่อมต่อ
             </button>
             <p id="status-log" class="text-xs text-red-400 mt-4 h-4"></p>
+
+            <div id="diag-panel" class="mt-4 text-left text-xs bg-gray-900 p-3 rounded-md border border-gray-700">
+                <div class="flex justify-between items-center mb-2">
+                    <strong class="text-sm text-cyan-300">Diagnostics</strong>
+                    <div class="flex gap-2">
+                        <button id="copy-diag" class="px-2 py-1 text-xs bg-gray-800 rounded">Copy logs</button>
+                        <button id="show-ice" class="px-2 py-1 text-xs bg-gray-800 rounded">Show ICE</button>
+                        <button id="show-net" class="px-2 py-1 text-xs bg-gray-800 rounded">Net</button>
+                    </div>
+                </div>
+                <pre id="diag-log" class="whitespace-pre-wrap max-h-40 overflow-auto text-[12px] text-gray-300"></pre>
+            </div>
         </div>
     </div>
 
@@ -35,7 +47,7 @@
     </div>
 
     <!-- Overlay -->
-    <div id="controls-overlay" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800/80 backdrop-blur px-6 py-2 rounded-full hidden flex gap-4">
+    <div id="controls-overlay" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800/80 backdrop-blur px-6 py-2 rounded-full hidden gap-4">
         <button onclick="toggleFullScreen()" class="hover:text-cyan-400 transition">⛶ Fullscreen</button>
         <span class="text-gray-500">|</span>
         <button onclick="location.reload()" class="text-red-400 hover:text-red-300 transition">Disconnect</button>
@@ -71,11 +83,13 @@
         peer.on('error', (err) => {
             console.error('Peer error:', err);
             showToast('Peer error: ' + err, 'error');
+            logDiag('Peer error: ' + err, 'error');
         });
 
         // 1. รอรับสายจาก Host (จุดสำคัญ: รับภาพตรงนี้)
         peer.on('call', (call) => {
             console.log("Incoming call from Host...");
+            logDiag('Incoming call from Host: ' + call.peer);
             statusLog.innerText = "กำลังรับสัญญาณภาพ...";
             statusLog.className = "text-xs text-blue-400 mt-4 h-4 animate-pulse";
             
@@ -85,6 +99,7 @@
             // เมื่อภาพมาถึง
             call.on('stream', (remoteStream) => {
                 console.log("Stream Received!");
+                logDiag('Stream received from: ' + call.peer);
                 loginScreen.style.display = 'none'; // ซ่อนหน้า Login
                 controlsOverlay.classList.remove('hidden');
                 controlsOverlay.style.display = 'flex';
@@ -92,6 +107,7 @@
                 remoteVideo.srcObject = remoteStream;
                 remoteVideo.play().catch(e => {
                     console.error("Autoplay blocked:", e);
+                    logDiag('Autoplay blocked: ' + e, 'warn');
                     showToast('Autoplay blocked — กดปุ่ม Play เพื่อเริ่มเล่น', 'warn', 6000);
                     document.getElementById('play-btn').classList.remove('hidden');
                 });
@@ -99,8 +115,39 @@
 
             call.on('close', () => {
                 showToast('Host หยุดแชร์หน้าจอแล้ว','info',2000);
+                logDiag('Call closed by host: ' + call.peer);
                 setTimeout(() => location.reload(), 1500);
             });
+        });
+
+        // Diagnostics utilities
+        function logDiag(message, level = 'info') {
+            const el = document.getElementById('diag-log');
+            if (!el) return;
+            const t = new Date().toLocaleTimeString();
+            el.textContent = `[${t}] ${message}\n` + el.textContent;
+        }
+
+        document.getElementById('copy-diag').addEventListener('click', () => {
+            const el = document.getElementById('diag-log');
+            if (!el) return;
+            navigator.clipboard.writeText(el.textContent || '').then(() => showToast('คัดลอก log แล้ว'));
+        });
+
+        document.getElementById('show-ice').addEventListener('click', () => {
+            logDiag('ICE servers: ' + JSON.stringify(ICE_SERVERS));
+            showToast('แสดง ICE servers ใน diagnostics');
+        });
+
+        document.getElementById('show-net').addEventListener('click', () => {
+            try {
+                const info = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+                if (info) {
+                    logDiag('Network: type=' + info.effectiveType + ' down=' + info.downlink + ' rtt=' + info.rtt);
+                } else {
+                    logDiag('Network info not available');
+                }
+            } catch (e) { logDiag('Error reading network info: ' + e, 'warn'); }
         });
 
         btnConnect.addEventListener('click', () => {
